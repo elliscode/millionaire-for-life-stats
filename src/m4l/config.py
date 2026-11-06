@@ -90,3 +90,8 @@ RECENT_WINDOW_DAYS = int(os.environ.get("RECENT_WINDOW_DAYS", "7"))
 MAX_FETCHES_PER_RUN = int(os.environ.get("MAX_FETCHES_PER_RUN", "300"))
 # Results are treated as "should exist by now" this long after 11:15 p.m. ET.
 RESULTS_GRACE_MINUTES = int(os.environ.get("RESULTS_GRACE_MINUTES", "45"))
+# Fail the run (-> Errors alarm) when the newest verified drawing is more than
+# this many days behind the newest drawing that should exist. 1 day behind is
+# normal when counts post after the nightly run; >2 means 3 nights in a row
+# with no new data (blocked, site down, results not posting, ...).
+STALE_AFTER_DAYS = int(os.environ.get("STALE_AFTER_DAYS", "2"))

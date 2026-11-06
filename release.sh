@@ -6,7 +6,9 @@
 #
 # After deploying code that changes templates/CSS/JS, republish the site:
 #   aws lambda invoke --function-name m4l-tracker \
-#     --cli-binary-format raw-in-base64-out --payload '{"force_publish": true}' /dev/stdout
+#     --cli-binary-format raw-in-base64-out --payload '{"force_publish": true}' \
+#     --log-type Tail --no-cli-pager \
+#     --query LogResult --output text out.json | base64 -d; echo; cat out.json; echo
 set -euo pipefail
 cd "$(dirname "$0")"
 

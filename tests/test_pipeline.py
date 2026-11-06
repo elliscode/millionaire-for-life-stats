@@ -170,3 +170,49 @@ def test_generated_page_embeds_everything(stores):
     # no external scripts or styles
     for src in re.findall(r'(?:src|href)="([^"]+\.(?:js|css))"', html):
         assert not src.startswith(("http:", "https:", "//")), src
+
+
+# ---- staleness check (latest expected drawing at NOW is 2026-03-01) --------
+
+def failing_last(n):
+    """Every date verified except the last n, which never get posted."""
+    return records(**{d: "not_published" for d in ALL[len(ALL) - n:]}) if n else records()
+
+
+@pytest.mark.parametrize("missing_nights,lag,stale", [
+    (0, 0, False),   # normal
+    (1, 1, False),   # counts posted after the nightly run: normal, no alarm
+    (2, 2, False),   # two late nights: still within threshold
+    (3, 3, True),    # third night with nothing new: alarm
+])
+def test_freshness(stores, missing_nights, lag, stale):
+    state, site = stores
+    out = run(state, site, RunOptions(), fetcher=FakeFetcher(failing_last(missing_nights)), now=NOW)
+    f = out["freshness"]
+    assert f["latestExpected"] == "2026-03-01"
+    assert (f["lagDays"], f["stale"]) == (lag, stale)
+    assert out["publish"]["published"] is True   # verified data still goes out
+
+
+def test_http_errors_alone_become_stale_not_alarms(stores):
+    """Blocked/down: no parse alarms, but the staleness check catches it."""
+    state, site = stores
+    run(state, site, RunOptions(), fetcher=FakeFetcher(records()), now=NOW)
+    later = datetime(2026, 3, 5, 9, 0, tzinfo=ET)  # 4 more drawings should exist
+    out = run(state, site, RunOptions(), fetcher=FakeFetcher({}), now=later)
+    assert out["alarms"] == {}
+    assert out["freshness"]["lagDays"] == 3 and out["freshness"]["stale"] is True
+
+
+def test_empty_dataset_is_stale(stores):
+    state, site = stores
+    out = run(state, site, RunOptions(publish=False), fetcher=FakeFetcher({}), now=NOW)
+    assert out["freshness"]["newestVerified"] is None and out["freshness"]["stale"] is True
+
+
+def test_stale_threshold_is_configurable(stores, monkeypatch):
+    from m4l import config
+    monkeypatch.setattr(config, "STALE_AFTER_DAYS", 0)
+    state, site = stores
+    out = run(state, site, RunOptions(), fetcher=FakeFetcher(failing_last(1)), now=NOW)
+    assert out["freshness"]["stale"] is True

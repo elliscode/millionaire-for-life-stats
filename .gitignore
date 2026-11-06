@@ -13,3 +13,4 @@ dimg/
 data/snapshots/
 data/publish-manifest.json
 .DS_Store
+out.json

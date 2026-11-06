@@ -7,7 +7,7 @@ Not affiliated with Powerball, MUSL, or any state lottery.
 ## How it works
 
 ```
-EventBridge Scheduler (6:00 a.m. America/New_York, daily)
+EventBridge Scheduler (12:15 a.m. America/New_York, nightly)
   └─ Lambda m4l-tracker (Python 3.14, arm64)
        1. load state/historical-results.json from S3
        2. fetch missing dates + re-check the last 7 drawings from powerball.com
@@ -71,6 +71,7 @@ Locally, `./data` plays the role of `s3://BUCKET/state/` and `./public` plays `s
 - **Quirk handled:** a date with no published results does *not* 404. Powerball silently serves the nearest drawing instead. The parser compares the page's displayed date to the requested date and records a `not_published`/`no_drawing` failure on any mismatch.
 - Each record is validated: 5 unique white balls within 1–58, a Millionaire Ball within 1–5, exactly the nine expected tier codes (read from Powerball's own `m5-mb`…`m1-mb` CSS classes), integer counts, and agreement between the prize table and the Winners card.
 - Failure kinds: `missing_page`, `http_error`, `not_published`, `no_drawing`, `results_incomplete`, `unexpected_structure`, `parse_error`. None are ever converted to zero. The last two fail the Lambda invocation so an alarm can catch HTML changes.
+- **Staleness check:** every run also fails if the newest verified drawing is more than `STALE_AFTER_DAYS` (default 2) behind the newest drawing that should exist. That's the catch-all for being blocked, Powerball being down, or results never posting, which otherwise only show up as logged failures. State is saved and verified data published before the run fails.
 - robots.txt (checked 2026-11-05) permits all crawling. The terms of use contain no automated-access clause, but do contain a general intellectual-property clause. This project republishes only factual results (numbers and counts) with links back to each official page. It never republishes Powerball's HTML, text, logos, or styling. Raw HTML snapshots stay in the private `state/` prefix for debugging only.
 
 ## Statistical methodology

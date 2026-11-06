@@ -16,9 +16,13 @@ Environment:
     CLOUDFRONT_DISTRIBUTION_ID    optional; invalidated after a changed publish
     (plus the optional tuning vars in config.py)
 
-The invocation FAILS (raises) if any page hit an unexpected-structure or
-parse error, after saving state and publishing whatever verified data it
-has, so the Lambda Errors metric/alarm catches Powerball HTML changes.
+The invocation FAILS (raises), after saving state and publishing whatever
+verified data it has, so the Lambda Errors metric/alarm fires, when:
+  - any page hit an unexpected-structure or parse error (Powerball HTML
+    changed), or
+  - the newest verified drawing is more than STALE_AFTER_DAYS (default 2)
+    behind the newest drawing that should exist: the catch-all for being
+    blocked, Powerball being down, or results never posting.
 """
 
 import json
@@ -54,7 +58,16 @@ def lambda_handler(event, context):
 
     out = run(state, site, opts, invalidate=invalidate)
     log.info("run result: %s", json.dumps(out, default=str))
+    problems = []
     if out["alarms"]:
-        raise ScrapeAlarm(f"parse/structure failures (state saved, see state/scrape-failures.json "
-                          f"and state/snapshots/): {out['alarms']}")
+        problems.append(f"parse/structure failures (see state/scrape-failures.json and "
+                        f"state/snapshots/): {out['alarms']}")
+    fresh = out.get("freshness") or {}
+    if fresh.get("stale"):
+        problems.append(f"no new verified drawing for {fresh['lagDays']} day(s): newest is "
+                        f"{fresh['newestVerified']}, expected {fresh['latestExpected']} "
+                        f"(threshold {fresh['staleAfterDays']}; see state/scrape-failures.json)")
+    if problems:
+        # State is saved and verified data published before we get here.
+        raise ScrapeAlarm("; ".join(problems))
     return out

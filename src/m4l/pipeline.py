@@ -16,6 +16,7 @@ Safety properties:
 
 import hashlib
 import logging
+from datetime import date
 
 from . import dataset as ds
 from .scraper import Fetcher, latest_expected_draw_date, plan_dates, utc_now_iso
@@ -70,6 +71,7 @@ def scrape(state, opts, fetcher=None, now=None, progress=None):
 
     now_iso = utc_now_iso()
     summary = ds.merge_results(data, failures, corrections, results, now_iso)
+    summary.latest_expected = latest
     data["lastChecked"] = now_iso
 
     # Snapshots: every failure (for debugging) and every new/changed record.
@@ -124,6 +126,22 @@ def publish(state, site, data, force=False, invalidate=None, today=None):
     return result
 
 
+def freshness(data, latest_expected):
+    """How far the newest verified drawing lags the newest one that should exist."""
+    from . import config
+
+    drawings = ds.verified_drawings(data)
+    newest = max((d["date"] for d in drawings), default=None)
+    lag = (latest_expected - date.fromisoformat(newest)).days if newest else None
+    return {
+        "latestExpected": latest_expected.isoformat(),
+        "newestVerified": newest,
+        "lagDays": lag,
+        "staleAfterDays": config.STALE_AFTER_DAYS,
+        "stale": lag is None or lag > config.STALE_AFTER_DAYS,
+    }
+
+
 def run(state, site, opts, fetcher=None, invalidate=None, now=None):
     summary = None
     if opts.scrape:
@@ -131,6 +149,10 @@ def run(state, site, opts, fetcher=None, invalidate=None, now=None):
     else:
         data = ds.load_json(state, ds.DATASET_KEY, ds.empty_dataset())
     out = {"scrape": summary.as_dict() if summary else None}
+    if summary:
+        out["freshness"] = freshness(data, summary.latest_expected)
+        if out["freshness"]["stale"]:
+            log.error("dataset is stale: %s", out["freshness"])
     if opts.publish:
         out["publish"] = publish(state, site, data, force=opts.force_publish, invalidate=invalidate)
     out["alarms"] = summary.alarms if summary else {}

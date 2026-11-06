@@ -68,7 +68,7 @@ def main(argv=None):
         out = run(state, site, RunOptions(full_refresh=a.full, dates=a.date, max_fetches=a.max,
                                           publish=not a.no_publish, snapshots=not a.no_snapshots))
         print(json.dumps(out, indent=1))
-        return 1 if out["alarms"] else 0
+        return 1 if out["alarms"] or (out.get("freshness") or {}).get("stale") else 0
 
     data = ds.load_json(state, ds.DATASET_KEY, ds.empty_dataset())
 

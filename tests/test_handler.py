@@ -41,3 +41,19 @@ def test_structure_change_fails_invocation_but_keeps_data(wired):
     with pytest.raises(handler.ScrapeAlarm):
         handler.lambda_handler({}, None)
     assert '"2026-03-01"' in stores["state/"].read_text("historical-results.json")
+
+
+def test_stale_data_fails_invocation_after_publishing(wired):
+    stores, answers = wired
+    for d in ALL[-3:]:
+        answers[d] = "not_published"   # three nights with nothing new
+    with pytest.raises(handler.ScrapeAlarm, match="no new verified drawing for 3 day"):
+        handler.lambda_handler({}, None)
+    assert stores["site/"].exists("index.html")  # still published what it had
+
+
+def test_one_late_night_is_not_an_error(wired):
+    stores, answers = wired
+    answers[ALL[-1]] = "not_published"
+    out = handler.lambda_handler({}, None)
+    assert out["freshness"]["lagDays"] == 1

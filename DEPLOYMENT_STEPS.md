@@ -83,7 +83,7 @@ site/data/historical-results.json  public copy of the verified data (served)
 | `BUCKET_NAME` | `m4l-elliscode-com` |
 | `CLOUDFRONT_DISTRIBUTION_ID` | from step 3 |
 
-  Optional tuning (defaults shown): `REQUEST_DELAY_MS=750`, `REQUEST_RETRIES=2`, `REQUEST_TIMEOUT_S=20`, `RECENT_WINDOW_DAYS=7`, `MAX_FETCHES_PER_RUN=300`, `RESULTS_GRACE_MINUTES=45`, `USER_AGENT`, `SITE_URL`.
+  Optional tuning (defaults shown): `REQUEST_DELAY_MS=750`, `REQUEST_RETRIES=2`, `REQUEST_TIMEOUT_S=20`, `RECENT_WINDOW_DAYS=7`, `MAX_FETCHES_PER_RUN=300`, `RESULTS_GRACE_MINUTES=45`, `STALE_AFTER_DAYS=2`, `USER_AGENT`, `SITE_URL`.
 
 ### ☐ 8. Deploy the code once
 
@@ -96,17 +96,22 @@ sh release.sh
 
 - [ ] Create a scheduler execution role with `deploy/scheduler-role-policy.json` (trust `scheduler.amazonaws.com`). The console can create this for you.
 - [ ] EventBridge → Scheduler → Create schedule `m4l-tracker-daily`:
-  - Recurring, cron **`0 6 * * ? *`**, time zone **America/New_York**: 6:00 a.m. Eastern every day, about 6¾ hours after the 11:15 p.m. ET drawing. Scheduler handles DST itself.
-    - If you'd rather pin UTC: `cron(0 10 * * ? *)` with time zone UTC, which is 6 a.m. EDT / 5 a.m. EST. Both are safe.
+  - Recurring, cron **`15 0 * * ? *`**, time zone **America/New_York**: 12:15 a.m. Eastern every night, an hour after the 11:15 p.m. ET drawing. Scheduler handles DST itself, so don't pin this one to UTC.
   - Flexible time window: Off.
   - Target: Lambda `m4l-tracker`, payload `{}`.
   - Retry policy: **off** (max retries 0).
 
-If results aren't posted yet when it runs, that date is logged as `not_published` (not as zero winners) and picked up on the next run.
+If that night's winner counts aren't posted yet at 12:15 a.m., the date is logged as `not_published` or `results_incomplete` (never as zero winners) and picked up by the next night's run, so the site can occasionally lag a day. If Powerball posts preliminary counts that change later, the next 7 nightly runs re-check that drawing and the correction is logged to `state/corrections.json`. To fill a gap sooner, invoke manually with `{}` any time.
 
 ### ☐ 10. Alarm (recommended)
 
-- [ ] CloudWatch → Alarms → metric `AWS/Lambda` `Errors`, FunctionName `m4l-tracker`, Sum ≥ 1 over 1 day → SNS email to you. The invocation fails only if a page had an **unexpected structure or parse error**, which is the "Powerball changed their HTML" signal. Verified data is still saved and published; the broken dates are listed in `state/scrape-failures.json`, with raw HTML in `state/snapshots/`.
+- [ ] SNS → create Standard topic `m4l-alerts` → add an Email subscription → confirm via the link in the email.
+- [ ] CloudWatch → Alarms → metric `AWS/Lambda` → By Function Name → `m4l-tracker` → `Errors`. Statistic Sum, period 1 day, threshold ≥ 1, **missing data: treat as good** (most periods have no runs) → notify `m4l-alerts`.
+
+`Errors` is a built-in metric Lambda records automatically. It counts invocations that ended in failure: an uncaught exception, a timeout, running out of memory, or a startup error. For this function that means:
+- **Deliberate:** a page had an **unexpected structure or parse error**, which is the "Powerball changed their HTML" signal. Verified data is still saved and published first. The broken dates are listed in `state/scrape-failures.json`, with raw HTML in `state/snapshots/`.
+- **Deliberate (staleness check):** the newest verified drawing is more than `STALE_AFTER_DAYS` (default 2) behind the newest drawing that should exist. One night behind is normal when counts post after the 12:15 a.m. run, so this fires on the third night in a row with no new data. It's the catch-all for HTTP errors (Powerball blocking us or being down), results that never get posted, or anything else that silently stops updates.
+- **Anything else that broke the run:** S3/CloudFront permission errors, the generated page failing its pre-publish sanity checks, a timeout, or a code bug. The site keeps serving the last good version.
 
 ---
 
@@ -123,8 +128,12 @@ Then run the Lambda once by hand:
 
 ```bash
 aws lambda invoke --function-name m4l-tracker \
-  --cli-binary-format raw-in-base64-out --payload '{}' /dev/stdout
+  --cli-binary-format raw-in-base64-out --payload '{}' \
+  --log-type Tail --no-cli-pager \
+  --query LogResult --output text out.json | base64 -d; echo; cat out.json; echo
 ```
+
+This prints the tail of the function's log (including any error and traceback), then the response. Don't send the payload to `/dev/stdout`: the CLI's pager redraws the screen and hides it, leaving only `"FunctionError": "Unhandled"` with no message.
 
 Expected: `"added"` lists any drawings since Nov 4, `"publish": {"published": true, ...}`, and an `"invalidation"` id. Then open https://m4l.elliscode.com.
 
@@ -149,7 +158,9 @@ curl -s -o /dev/null -w "%{http_code}\n" https://m4l.elliscode.com/state/histori
 ./dev.sh build && ./dev.sh browser-test   # optional: local site + headless Chrome checks
 sh release.sh                 # build zip (Docker) + update-function-code
 aws lambda invoke --function-name m4l-tracker \
-  --cli-binary-format raw-in-base64-out --payload '{"force_publish": true}' /dev/stdout
+  --cli-binary-format raw-in-base64-out --payload '{"force_publish": true}' \
+  --log-type Tail --no-cli-pager \
+  --query LogResult --output text out.json | base64 -d; echo; cat out.json; echo
 ```
 
 `force_publish` regenerates and re-uploads the site immediately. Otherwise the new templates go out on the next daily run.
@@ -165,6 +176,15 @@ aws lambda invoke --function-name m4l-tracker \
 | `{"force_publish": true}` | re-upload site even if unchanged |
 
 ### If the alarm fires
+
+The email doesn't include the reason, so start with the log:
+
+```bash
+aws logs tail /aws/lambda/m4l-tracker --since 1d --no-cli-pager | grep -E "ERROR|ScrapeAlarm"
+```
+
+- **"no new verified drawing for N day(s)"** (stale): check `scrape-failures.json` (step 1 below) for the `kind`. `http_error`/`missing_page` means Powerball is down or blocking us. Try `./dev.sh fetch <date>` locally to compare. `not_published` means results really aren't up yet. If that's simply a late-posting stretch, no fix is needed: the next successful run clears it.
+- **parse/structure failures:** follow the steps below.
 
 1. `aws s3 cp s3://m4l-elliscode-com/state/scrape-failures.json -` to see which dates and why.
 2. Download the matching `state/snapshots/<date>.<kind>.html` and reproduce locally: `./dev.sh parse snapshot.html <date>`.
