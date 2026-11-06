@@ -1,0 +1,22 @@
+[project]
+name = "m4l-tracker"
+version = "1.0.0"
+description = "Millionaire for Life Tracker: scraper, statistics, and static site generator (AWS Lambda)"
+requires-python = ">=3.12"
+# Runtime deps only. boto3 is deliberately NOT listed: the Lambda Python
+# runtime already provides it, and bundling it would bloat the zip.
+dependencies = [
+    "requests>=2.32",
+    "beautifulsoup4>=4.12",
+    "tzdata>=2024.1",
+]
+
+[project.optional-dependencies]
+dev = ["boto3>=1.40", "pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
+
+[tool.uv]
+index-url = "https://pypi.org/simple"

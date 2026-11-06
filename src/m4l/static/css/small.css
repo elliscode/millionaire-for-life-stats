@@ -1,0 +1,157 @@
+/*
+ * Flip-phone layout (KaiOS-class screens, 240px wide).
+ *
+ * Linked from index.html with media="(max-width: 240px)", so every rule here
+ * applies only at that width and overrides styles.css (loaded first).
+ *
+ * KaiOS lessons carried over from foursure (notes/kaios-softkey-fixed-position-bug.md):
+ *  - no position: fixed. #jump-check is position: absolute and placed from
+ *    JS (placeJumpButton() in app.js) using innerWidth/innerHeight/scrollY.
+ *    It's only shown while the page is scrolled to the very top.
+ *  - focus is shown with box-shadow because outline doesn't render on real
+ *    KaiOS hardware.
+ *  - no aspect-ratio (not in Gecko 84, the KaiOS 3 target).
+ */
+
+:root { --jump-h: 34px; }
+
+html, body { overflow-x: hidden; }
+body {
+  font-size: 13px;
+  line-height: 1.4;
+  /* room so the jump button never covers the last of the page */
+  padding-bottom: calc(var(--jump-h) + 12px);
+}
+* { overflow-wrap: anywhere; }
+.wrap { padding: 0 6px; }
+section { margin: 18px 0; }
+h2 { font-size: 1.05rem; margin-bottom: 4px; }
+h3 { font-size: 0.92rem; }
+.section-sub, .panel__sub { font-size: 0.85rem; margin-bottom: 8px; }
+
+/* focus: box-shadow, not outline (KaiOS) */
+a:focus, button:focus, input:focus, summary:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* ---- masthead ---- */
+.masthead { padding: 10px 0 8px; }
+.kicker { font-size: 0.62rem; }
+.masthead h1 { font-size: 1.25rem; margin: 2px 0; }
+.dek { font-size: 0.85rem; margin-bottom: 6px; }
+.meta, .disclaimer { font-size: 0.72rem; }
+.notice { padding: 6px 8px; font-size: 0.78rem; }
+
+/* ---- cards / counters / panels ---- */
+.cards { gap: 8px; }
+.stat-card, .counter, .panel { padding: 8px; border-radius: 6px; }
+.stat-card__prize { font-size: 0.78rem; margin-bottom: 4px; }
+.stat-card__value, .counter__value { font-size: 1.9rem; margin: 4px 0 6px; }
+.stat-card__unit { font-size: 0.85rem; }
+.counter__caption { font-size: 0.78rem; margin-bottom: 4px; }
+dl > div { flex-wrap: wrap; gap: 0 6px; padding: 3px 0; font-size: 0.78rem; }
+dd { margin-left: auto; }
+
+/* ---- chart panel ---- */
+.panel__head { gap: 6px; }
+.toggle button { font-size: 0.75rem; padding: 4px 8px; min-height: 28px; }
+.legend { font-size: 0.72rem; gap: 2px 10px; }
+.chart-box { height: 170px; }
+.chart-box--small { height: 110px; }
+
+/* ---- expected vs. actual + per-tier tables: stack each row ---- */
+table.data:not(.history),
+table.data:not(.history) tbody,
+table.data:not(.history) tr,
+table.data:not(.history) th,
+table.data:not(.history) td { display: block; width: auto; }
+table.data:not(.history) thead { display: none; }
+table.data:not(.history) caption { display: block; font-size: 0.8rem; padding: 8px 0 2px; }
+table.data:not(.history) tr { border-bottom: 1px solid var(--grid); padding: 6px 0; }
+table.data:not(.history) tbody th {
+  border: 0; padding: 0 0 2px; font-weight: 700; white-space: normal; text-align: left;
+}
+table.data:not(.history) td {
+  display: flex; justify-content: space-between; gap: 6px;
+  border: 0; padding: 1px 0; white-space: normal; font-size: 0.78rem;
+}
+table.data:not(.history) td::before {
+  content: attr(data-label); color: var(--muted); text-align: left;
+}
+.table-scroll { overflow-x: visible; }
+
+/* ---- estimated plays ---- */
+.plays { display: block; margin-top: 10px; }
+.plays > * { min-width: 0; margin-bottom: 6px; }
+.plays__label { font-size: 0.8rem; }
+.plays__value { font-size: 1.4rem; }
+.plays .muted, .estimate-flag { font-size: 0.75rem; }
+.estimate-flag { margin: 8px 0; }
+.method p { font-size: 0.8rem; }
+
+/* ---- check your numbers ---- */
+/* drop the intro so date, balls, Millionaire Ball, and the button all fit
+   on one 320px-tall screen after jumping here */
+.checker .panel__sub { display: none; }
+.checker h2 { margin-bottom: 8px; }
+.checker form { gap: 8px; }
+.field label, .field legend { font-size: 0.82rem; }
+input[type="date"] { width: 100%; max-width: 100%; min-height: 34px; padding: 4px 6px; font-size: 0.9rem; }
+/* 5 x 38px + 4 x 4px gaps = 206px: all five white balls on one row */
+.balls { gap: 4px; flex-wrap: nowrap; }
+.ball { width: 38px; min-width: 0; min-height: 34px; padding: 2px; font-size: 0.95rem; }
+.btn { width: 100%; min-height: 36px; padding: 6px 10px; }
+.result { margin-top: 10px; padding: 8px; }
+.result h3, .result--lifetime h3 { font-size: 0.95rem; }
+.result p { font-size: 0.8rem; }
+/* 6 x 28px + 5 x 4px = 188px: winning numbers on one row */
+.drawn { gap: 4px; }
+.drawn span { width: 28px; height: 28px; font-size: 0.8rem; }
+.disclaimer--box { margin-top: 10px; padding: 6px 8px; font-size: 0.72rem; }
+
+/* ---- every drawing (already stacked by styles.css below 560px) ---- */
+.table-scroll--tall { max-height: none; border-radius: 6px; }
+.history, .history tbody { display: block; width: 100%; }
+/* date / numbers / "Top n   2nd n", each on its own line */
+.history tr { grid-template-columns: 1fr 1fr; padding: 6px; gap: 0 8px; }
+.history td:nth-child(1), .history td.nums { grid-column: 1 / -1; }
+.history td.num { text-align: left; }
+.history td { font-size: 0.8rem; }
+.mb-num { font-size: 0.7rem; }
+
+.footer { padding: 10px 0 14px; margin-top: 18px; font-size: 0.72rem; }
+
+/* ---- the "Check your numbers" shortcut ---- */
+.jump-check {
+  display: block;
+  position: absolute; /* NOT fixed (see header); app.js sets top/left */
+  bottom: 6px;        /* fallback until JS positions it */
+  left: 0;
+  z-index: 20;
+  height: var(--jump-h);
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--good);
+  color: #fff;
+  font: 600 0.85rem/1 var(--font);
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  /* slide-out when the page leaves the very top; app.js then sets [hidden].
+     200ms must match JUMP_SLIDE_MS in app.js. */
+  transform: translateY(0);
+  opacity: 1;
+  transition: transform 200ms ease-in, opacity 200ms ease-in;
+}
+.jump-check--away {
+  transform: translateY(calc(100% + 12px)); /* fully below the viewport edge */
+  opacity: 0;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .jump-check { transition: none; }
+}
+.jump-check:focus { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--good); }
+.jump-check[hidden] { display: none; }

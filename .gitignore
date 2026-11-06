@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+
+# generated locally
+public/
+screenshots/
+dist/
+dimg/
+data/snapshots/
+data/publish-manifest.json
+.DS_Store

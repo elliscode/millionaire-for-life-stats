@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="${csp}">
+  <title>Millionaire for Life Tracker</title>
+  <meta name="description" content="Every lifetime-prize winner in the Millionaire for Life lottery since launch: winner history, droughts, expected vs. actual, and an unofficial number checker. Independent project.">
+  <meta property="og:title" content="Millionaire for Life Tracker">
+  <meta property="og:description" content="Tracking every lifetime-prize winner since the game's launch.">
+  <meta property="og:url" content="${site_url}">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="${css_url}">
+  <link rel="stylesheet" href="${small_css_url}" media="(max-width: 240px)">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="masthead">
+    <div class="wrap">
+      <p class="kicker">An independent statistics project</p>
+      <h1>Millionaire for Life Tracker</h1>
+      <p class="dek">Tracking every lifetime-prize winner since the game's launch.</p>
+      <p class="meta">
+        Data last updated <time datetime="${last_updated_iso}">${last_updated}</time>
+        · Latest drawing: ${last_drawing} (${drawings_count} drawings since ${launch_date})
+        · <a href="${latest_result_url}">Official result</a>
+      </p>
+      <p class="disclaimer">Not affiliated with Powerball, the Multi-State Lottery Association, or any state lottery. Figures are compiled from Powerball's published results. <a href="${official_url}">Official Millionaire for Life results</a> always take precedence.</p>
+    </div>
+  </header>
+
+  <main id="main" class="wrap">
+    ${coverage_note}
+
+    <section aria-labelledby="h-totals">
+      <h2 id="h-totals">Lifetime prize winners</h2>
+      <div class="cards">
+        ${card_top}
+        ${card_second}
+      </div>
+    </section>
+
+    <section aria-labelledby="h-history" class="panel">
+      <div class="panel__head">
+        <h2 id="h-history">Winning tickets over time</h2>
+        <div class="toggle" role="group" aria-label="Chart view">
+          <button type="button" data-view="cumulative" aria-pressed="true">Cumulative</button>
+          <button type="button" data-view="daily" aria-pressed="false">Per drawing</button>
+        </div>
+      </div>
+      <p class="panel__sub" id="chart-caption">Total winning tickets since launch, through each drawing.</p>
+      <div class="legend" aria-hidden="true">
+        <span><span class="swatch swatch--top"></span>Top prize ($$1M/yr for life)</span>
+        <span><span class="swatch swatch--second"></span>Second prize ($$100K/yr for life)</span>
+      </div>
+      <div class="chart-box">
+        <canvas id="winners-chart" role="img" aria-label="Chart of top-prize and second-prize winning tickets by drawing date. The same data is in the drawing table below."></canvas>
+      </div>
+      <noscript><p class="muted">The chart needs JavaScript. Every number in it is in the drawing table below.</p></noscript>
+    </section>
+
+    <section aria-labelledby="h-since">
+      <h2 id="h-since">Days since last winner</h2>
+      <p class="section-sub">Counted from the most recent verified winning drawing to today. Each drawing's odds are independent: a long gap does <em>not</em> make a winner more likely next time.</p>
+      <div class="cards">
+        ${drought_top}
+        ${drought_second}
+      </div>
+    </section>
+
+    <section aria-labelledby="h-expected" class="panel">
+      <h2 id="h-expected">Expected vs. actual</h2>
+      <p class="panel__sub">How many lifetime-prize winners the official odds predict for the estimated number of plays so far, compared to how many actually happened.</p>
+      <div class="table-scroll">
+        <table class="data">
+          <thead>
+            <tr><th scope="col">Prize</th><th scope="col">Official odds</th><th scope="col">Actual</th><th scope="col">Expected</th><th scope="col">Difference</th><th scope="col">Actual ÷ expected</th><th scope="col">P(this many or fewer)</th><th scope="col">P(this many or more)</th></tr>
+          </thead>
+          <tbody>${expected_rows}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="plays">
+        <div class="plays__fig">
+          <p class="plays__label">Estimated plays since launch</p>
+          <p class="plays__value">${plays_total}</p>
+          <p class="muted">Poisson 95% interval ${plays_ci} (understates the real uncertainty; see method) · about ${plays_avg} per drawing · roughly ${sales_total} in sales at $$5 per play</p>
+        </div>
+        <div class="chart-box chart-box--small">
+          <canvas id="plays-chart" role="img" aria-label="Chart of estimated plays per drawing."></canvas>
+        </div>
+      </div>
+      <p class="estimate-flag"><strong>Estimates, not official sales data.</strong> Powerball doesn't publish Millionaire for Life sales. These figures are reconstructed from winner counts.</p>
+
+      <details class="method">
+        <summary>How these numbers are calculated</summary>
+        <p>For a drawing with <var>N</var> plays, the number of tickets that hit a prize tier with probability <var>p</var> follows a binomial distribution, which for these tiny probabilities is very well approximated by a Poisson distribution with mean <var>N</var>·<var>p</var>.</p>
+        <p><strong>Plays.</strong> Each drawing's play count is estimated from its seven fixed-prize tiers combined: <var>N</var> = (total winners across those tiers) ÷ (sum of their probabilities). That's the maximum-likelihood estimate for pooled Poisson counts. It is a weighted average of the per-tier estimates, not their sum, and the common tiers dominate because their counts are the most precise. The two lifetime tiers are left out so they aren't used to predict themselves.</p>
+        <p><strong>Expected winners.</strong> Estimated plays × the official probability for that prize. The probabilities in the last two columns treat the actual count as a draw from a Poisson distribution with that expected mean.</p>
+        <p><strong>Caveats.</strong> Players don't choose numbers uniformly (birthdays, patterns, "lucky" numbers), so a single night's winner counts swing more than a pure random model predicts, depending on which numbers came up. That's visible below: the per-tier estimates disagree by more than their statistical intervals. Uneven number choice doesn't change how many winners to expect on average (every drawing is uniformly random), but it does make the actual count more variable than the Poisson model assumes. So the probabilities above, and the plays interval, overstate how surprising a result is and how precise the estimate is. Read them as rough guides. The top prize is also pari-mutuel per the official rules. Odds are the <a href="${prize_chart_url}">official published odds</a> for a $$5 play.</p>
+        <div class="table-scroll">
+          <table class="data data--compact">
+            <caption>Plays implied by each prize tier on its own (all drawings combined)</caption>
+            <thead><tr><th scope="col">Combination</th><th scope="col">Odds</th><th scope="col">Winners</th><th scope="col">Implied plays</th><th scope="col">95% interval</th><th scope="col">÷ pooled estimate</th></tr></thead>
+            <tbody>${tier_rows}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+
+    <section aria-labelledby="h-check" class="panel checker" id="check">
+      <h2 id="h-check">Check Your Numbers</h2>
+      <p class="panel__sub">Compare your numbers against any drawing since launch. Everything runs in your browser, and nothing you enter is sent anywhere.</p>
+      <form id="checker-form" novalidate>
+        <div class="field">
+          <label for="ck-date">Drawing date</label>
+          <input type="date" id="ck-date" name="date" min="${first_date}" max="${last_date}" value="${last_date}" required>
+        </div>
+        <fieldset class="field">
+          <legend>Your five white ball numbers <span class="muted">(1–58, all different)</span></legend>
+          <div class="balls">
+            <input class="ball" type="number" inputmode="numeric" min="1" max="58" aria-label="White ball 1" name="w1" required>
+            <input class="ball" type="number" inputmode="numeric" min="1" max="58" aria-label="White ball 2" name="w2" required>
+            <input class="ball" type="number" inputmode="numeric" min="1" max="58" aria-label="White ball 3" name="w3" required>
+            <input class="ball" type="number" inputmode="numeric" min="1" max="58" aria-label="White ball 4" name="w4" required>
+            <input class="ball" type="number" inputmode="numeric" min="1" max="58" aria-label="White ball 5" name="w5" required>
+          </div>
+        </fieldset>
+        <div class="field">
+          <label for="ck-mb">Millionaire Ball <span class="muted">(1–5)</span></label>
+          <input class="ball ball--mb" type="number" inputmode="numeric" min="1" max="5" id="ck-mb" name="mb" required>
+        </div>
+        <button type="submit" class="btn">Check numbers</button>
+      </form>
+      <div id="checker-result" class="result" role="status" aria-live="polite"></div>
+      <p class="disclaimer disclaimer--box">Unofficial number checker. This tool compares numbers entered by the user against published historical winning numbers. It does not validate physical lottery tickets or establish eligibility for a prize. Always verify tickets through the official state lottery.</p>
+    </section>
+
+    <section aria-labelledby="h-table">
+      <h2 id="h-table">Every drawing</h2>
+      <p class="section-sub">Newest first. Each date links to its official Powerball result page. Rows with a lifetime-prize winner are highlighted.</p>
+      <div class="table-scroll table-scroll--tall">
+        <table class="data history">
+          <thead><tr><th scope="col">Date</th><th scope="col">Winning numbers</th><th scope="col">Top prize winners</th><th scope="col">Second prize winners</th></tr></thead>
+          <tbody>
+${history_rows}
+          </tbody>
+        </table>
+      </div>
+      <p class="muted small">Raw data: <a href="data/historical-results.json">historical-results.json</a></p>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">
+      <p>Millionaire for Life Tracker is an independent project by <a href="https://elliscode.com">EllisCode</a>. It isn't affiliated with or endorsed by Powerball, the Multi-State Lottery Association, or any state lottery. Results are collected from <a href="${official_url}">powerball.com</a>. In any discrepancy the official results prevail. Play responsibly.</p>
+    </div>
+  </footer>
+
+  <!-- Flip-phone shortcut: only displayed at <=240px (small.css), positioned by app.js -->
+  <button type="button" id="jump-check" class="jump-check">Check your numbers</button>
+
+  <script type="application/json" id="m4l-data">${page_data}</script>
+  <script src="${chart_url}"></script>
+  <script src="${checker_url}"></script>
+  <script src="${app_url}"></script>
+</body>
+</html>
