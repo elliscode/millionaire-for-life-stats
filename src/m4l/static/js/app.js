@@ -7,6 +7,7 @@
   var DATA = JSON.parse(document.getElementById("m4l-data").textContent);
   var SMALL_MAX = 240; // must match small.css's media="(max-width: 240px)"
   function isSmall() { return window.innerWidth <= SMALL_MAX; }
+  var DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
   function fmtDate(iso, withYear) {
@@ -192,6 +193,32 @@
     });
   });
 
+  /* Warn when the newest drawing on the page isn't the newest that should
+   * exist (e.g. last night's results weren't posted when the page was
+   * built), so nobody checks last night's ticket against an older drawing. */
+  function expectedLatestET() {
+    var parts = {};
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+    }).formatToParts(new Date()).forEach(function (p) { parts[p.type] = p.value; });
+    var mins = (+parts.hour % 24) * 60 + (+parts.minute);
+    var back = mins >= DATA.resultsDueMinET ? 0 : 1 + Math.floor((DATA.resultsDueMinET - mins - 1) / 1440);
+    var d = new Date(Date.UTC(+parts.year, +parts.month - 1, +parts.day - back));
+    return d.toISOString().slice(0, 10);
+  }
+  var expectedDate = null;
+  try {
+    var exp = expectedLatestET();
+    if (DATA.lastDate && exp > DATA.lastDate) {
+      expectedDate = exp;
+      var stale = document.getElementById("ck-stale");
+      stale.textContent = fmtDate(exp) + " results aren't in yet. Newest here: " +
+        fmtDate(DATA.lastDate) + ".";
+      stale.hidden = false;
+    }
+  } catch (e) { /* no warning rather than a broken checker */ }
+
   function readInt(input) {
     var v = input.value.trim();
     return /^\d+$/.test(v) ? parseInt(v, 10) : NaN;
@@ -214,6 +241,10 @@
     else if (res.tier) heading = "Matching combination: " + res.tier.label;
     else heading = "No matching prize combination";
     out.appendChild(el("h3", null, heading));
+    if (expectedDate && res.date === DATA.lastDate) {
+      out.appendChild(el("p", null, "Note: this is the " + fmtDate(res.date) + " drawing. " +
+        fmtDate(expectedDate) + " results aren't in yet."));
+    }
 
     if (res.tier) out.appendChild(el("p", null, "Prize category: " + res.tier.prize));
     if (res.tier && res.tier.lifetime) {
@@ -258,6 +289,48 @@
     if (!res.ok) renderErrors(res.errors);
     else renderResult(res, DATA.drawings.find(function (d) { return d.d === date; }));
     if (isSmall()) out.scrollIntoView({ block: "nearest" });
+  });
+
+  /* ---------- "Every drawing" table, built on demand ------------------ *
+   * Rendering ~all rows up front made the page slow on the flip phone, so
+   * the server sends none; they're built from the embedded data (the same
+   * drawings the checker uses, index-aligned with series) on request.
+   * Markup matches what the generator used to emit, so the CSS is unchanged. */
+  function fmtLongDate(iso) {
+    var p = iso.split("-");
+    return DAYS[new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])).getUTCDay()] + ", " + fmtDate(iso, true);
+  }
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+  function countCell(n) {
+    return el("td", "num" + (n ? " hit" : ""), String(n));
+  }
+  var historyBtn = document.getElementById("history-load");
+  historyBtn.addEventListener("click", function () {
+    var body = document.getElementById("history-body");
+    var frag = document.createDocumentFragment();
+    for (var i = DATA.drawings.length - 1; i >= 0; i--) {
+      var d = DATA.drawings[i], top = S.topDaily[i], sec = S.secondDaily[i];
+      var tr = el("tr", top || sec ? "is-win" : null);
+      var dateCell = el("td"), a = el("a"), t = el("time", null, fmtLongDate(d.d));
+      a.href = d.u;
+      t.setAttribute("datetime", d.d);
+      a.appendChild(t);
+      dateCell.appendChild(a);
+      var nums = el("td", "nums", d.w.map(pad2).join(" ") + " ");
+      var mb = el("span", "mb-num", String(d.m));
+      mb.title = "Millionaire Ball";
+      nums.appendChild(mb);
+      tr.appendChild(dateCell);
+      tr.appendChild(nums);
+      tr.appendChild(countCell(top));
+      tr.appendChild(countCell(sec));
+      frag.appendChild(tr);
+    }
+    body.appendChild(frag);
+    document.getElementById("history-wrap").hidden = false;
+    historyBtn.remove();
+    var first = body.querySelector("a");
+    if (first) first.focus(); // keep D-pad focus where the button was
   });
 
   /* ---------- flip-phone "Check your numbers" button (<=240px) -------- *

@@ -49,6 +49,14 @@ def latest_expected_draw_date(now=None):
     return d if now_et >= cutoff else d - timedelta(days=1)
 
 
+def pending_alarm_due(date_iso, now=None):
+    """True once it's PENDING_ALARM_HOUR_ET on the morning after `date_iso`'s drawing."""
+    now_et = (now or datetime.now(tz=ET)).astimezone(ET)
+    d = datetime.fromisoformat(date_iso).date() + timedelta(days=1)
+    deadline = datetime(d.year, d.month, d.day, config.PENDING_ALARM_HOUR_ET, tzinfo=ET)
+    return now_et >= deadline
+
+
 def plan_dates(collected, latest, full_refresh=False, recent_days=None, only_dates=None):
     """Dates to fetch this run, oldest first.
 

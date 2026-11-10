@@ -29,6 +29,7 @@ Layout the Lambda maintains (you never upload to `site/` by hand):
 state/historical-results.json   authoritative dataset (private)
 state/scrape-failures.json      failure log (private)
 state/corrections.json          changed-after-refresh log (private)
+state/pending.json              latest-date pages not populated yet; alarm held until 6 a.m. ET (private)
 state/snapshots/*.html          raw Powerball HTML for new/failed dates (private)
 state/publish-manifest.json     hash of the last published index.html (private)
 site/index.html                 the website (served)
@@ -96,12 +97,12 @@ sh release.sh
 
 - [ ] Create a scheduler execution role with `deploy/scheduler-role-policy.json` (trust `scheduler.amazonaws.com`). The console can create this for you.
 - [ ] EventBridge → Scheduler → Create schedule `m4l-tracker-daily`:
-  - Recurring, cron **`15 0 * * ? *`**, time zone **America/New_York**: 12:15 a.m. Eastern every night, an hour after the 11:15 p.m. ET drawing. Scheduler handles DST itself, so don't pin this one to UTC.
+  - Recurring, cron **`15 0-6 * * ? *`**, time zone **America/New_York**: hourly from 12:15 to 6:15 a.m. Eastern, starting an hour after the 11:15 p.m. ET drawing. The later runs pick up a results page Powerball populated late. Runs that find nothing new don't republish or invalidate. Scheduler handles DST itself, so don't pin this one to UTC.
   - Flexible time window: Off.
   - Target: Lambda `m4l-tracker`, payload `{}`.
   - Retry policy: **off** (max retries 0).
 
-If that night's winner counts aren't posted yet at 12:15 a.m., the date is logged as `not_published` or `results_incomplete` (never as zero winners) and picked up by the next night's run, so the site can occasionally lag a day. If Powerball posts preliminary counts that change later, the next 7 nightly runs re-check that drawing and the correction is logged to `state/corrections.json`. To fill a gap sooner, invoke manually with `{}` any time.
+If that night's winner counts aren't posted yet at 12:15 a.m., the date is logged as `not_published` or `results_incomplete` (never as zero winners) and the later hourly runs (through 6:15 a.m.) try again. If it's still missing after that, the next night's runs pick it up, so the site can occasionally lag a day. If Powerball posts preliminary counts that change later, the runs over the next 7 nights re-check that drawing and the correction is logged to `state/corrections.json`. To fill a gap sooner, invoke manually with `{}` any time.
 
 ### ☐ 10. Alarm (recommended)
 
@@ -184,6 +185,7 @@ aws logs tail /aws/lambda/m4l-tracker --since 1d --no-cli-pager | grep -E "ERROR
 ```
 
 - **"no new verified drawing for N day(s)"** (stale): check `scrape-failures.json` (step 1 below) for the `kind`. `http_error`/`missing_page` means Powerball is down or blocking us. Try `./dev.sh fetch <date>` locally to compare. `not_published` means results really aren't up yet. If that's simply a late-posting stretch, no fix is needed: the next successful run clears it.
+- **"results page still not populated by the morning deadline"**: the newest drawing's page has been missing its results elements since an overnight run (logged at WARNING, no alarm) and still was at the 6:15 a.m. ET run. `state/pending.json` has the first-seen time and attempt count. If a manual rerun now parses it, Powerball was just slow. Otherwise treat it as a structure failure below.
 - **parse/structure failures:** follow the steps below.
 
 1. `aws s3 cp s3://m4l-elliscode-com/state/scrape-failures.json -` to see which dates and why.

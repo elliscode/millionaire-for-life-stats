@@ -4,7 +4,7 @@ Shared by the Lambda handler and the local CLI; only the storage backends
 (and whether CloudFront gets invalidated) differ.
 
 Safety properties:
-- state (dataset/failures/corrections) is saved before anything is published
+- state (dataset/failures/corrections/pending) is saved before anything is published
 - the site is generated only from verified records
 - the generated site must pass sanity checks before any upload
 - hashed assets upload first, the data JSON next, index.html LAST, so a
@@ -19,7 +19,8 @@ import logging
 from datetime import date
 
 from . import dataset as ds
-from .scraper import Fetcher, latest_expected_draw_date, plan_dates, utc_now_iso
+from .scraper import (Fetcher, latest_expected_draw_date, pending_alarm_due, plan_dates,
+                      utc_now_iso)
 
 log = logging.getLogger(__name__)
 
@@ -44,8 +45,11 @@ def scrape(state, opts, fetcher=None, now=None, progress=None):
     data = ds.load_json(state, ds.DATASET_KEY, ds.empty_dataset())
     failures = ds.load_json(state, ds.FAILURES_KEY, {"failures": {}})
     corrections = ds.load_json(state, ds.CORRECTIONS_KEY, [])
+    pending = ds.load_json(state, ds.PENDING_KEY, {"pending": {}})
 
     latest = latest_expected_draw_date(now)
+    latest_iso = latest.isoformat()
+    alarm_due = lambda d: pending_alarm_due(d, now)
     collected = {d["date"] for d in data["drawings"]}
     todo = plan_dates(collected, latest, full_refresh=opts.full_refresh, only_dates=opts.dates)
     cap = opts.max_fetches or config.MAX_FETCHES_PER_RUN
@@ -64,7 +68,9 @@ def scrape(state, opts, fetcher=None, now=None, progress=None):
             log.info("[%d/%d] %s ok top=%s second=%s", i, len(todo), d,
                      r.record["topPrizeWinners"], r.record["secondPrizeWinners"])
         else:
-            level = logging.ERROR if r.failure_kind in ds.ALARM_KINDS else logging.WARNING
+            held = ds.is_pendable(r, latest_iso) and not alarm_due(r.date)
+            level = (logging.ERROR if r.failure_kind in ds.ALARM_KINDS and not held
+                     else logging.WARNING)
             log.log(level, "[%d/%d] %s FAILED %s: %s", i, len(todo), d, r.failure_kind, r.detail)
         if progress:
             progress(i, len(todo), r)
@@ -72,6 +78,18 @@ def scrape(state, opts, fetcher=None, now=None, progress=None):
     now_iso = utc_now_iso()
     summary = ds.merge_results(data, failures, corrections, results, now_iso)
     summary.latest_expected = latest
+    summary.pending = ds.update_pending(pending, summary, results, latest_iso, now_iso, alarm_due)
+    summary.pending["open"] = sorted(pending["pending"])
+    for d in summary.pending["deferred"]:
+        e = pending["pending"][d]
+        log.warning("%s results page not populated yet (%s; attempt %d since %s); pending, "
+                    "alarms if still failing at %02d:00 ET", d, e["detail"], e["attempts"],
+                    e["firstSeen"], config.PENDING_ALARM_HOUR_ET)
+    for d in summary.pending["escalated"]:
+        log.error("%s still failing at the %02d:00 ET deadline (pending since %s); alarming",
+                  d, config.PENDING_ALARM_HOUR_ET, pending["pending"][d]["firstSeen"])
+    for d in summary.pending["cleared"]:
+        log.info("%s parsed; cleared pending entry", d)
     data["lastChecked"] = now_iso
 
     # Snapshots: every failure (for debugging) and every new/changed record.
@@ -85,6 +103,7 @@ def scrape(state, opts, fetcher=None, now=None, progress=None):
     # Persist state BEFORE publishing anything.
     state.write(ds.DATASET_KEY, ds.dump_json(data), "application/json")
     state.write(ds.FAILURES_KEY, ds.dump_json(failures), "application/json")
+    state.write(ds.PENDING_KEY, ds.dump_json(pending), "application/json")
     if summary.corrected:
         state.write(ds.CORRECTIONS_KEY, ds.dump_json(corrections), "application/json")
     return data, summary
@@ -156,4 +175,5 @@ def run(state, site, opts, fetcher=None, invalidate=None, now=None):
     if opts.publish:
         out["publish"] = publish(state, site, data, force=opts.force_publish, invalidate=invalidate)
     out["alarms"] = summary.alarms if summary else {}
+    out["pending"] = summary.pending if summary else None
     return out

@@ -101,6 +101,10 @@ def _page_data(drawings, stats, data):
     return {
         "launchDate": config.LAUNCH_DATE.isoformat(),
         "lastDate": stats["lastDate"],
+        # minutes after midnight ET (may be >= 1440) when a night's results count as due;
+        # the checker warns when the newest drawing it has is older than that
+        "resultsDueMinET": config.DRAW_TIME_ET[0] * 60 + config.DRAW_TIME_ET[1]
+                           + config.RESULTS_GRACE_MINUTES,
         "lastUpdated": data.get("lastUpdated"),
         "rules": _rules(),
         "series": stats["series"],
@@ -202,19 +206,6 @@ def _tier_rows(stats):
     return "".join(rows)
 
 
-def _history_rows(drawings):
-    rows = []
-    for d in reversed(drawings):
-        top, sec = d["topPrizeWinners"], d["secondPrizeWinners"]
-        nums = " ".join(f"{n:02d}" for n in d["winningNumbers"])
-        cls = ' class="is-win"' if top or sec else ""
-        rows.append(
-            f'<tr{cls}><td><a href="{esc(d["sourceUrl"])}"><time datetime="{d["date"]}">{fmt_date(d["date"], long=True)}</time></a></td>'
-            f'<td class="nums">{nums} <span class="mb-num" title="Millionaire Ball">{d["millionaireBall"]}</span></td>'
-            f'<td class="num{" hit" if top else ""}">{top}</td><td class="num{" hit" if sec else ""}">{sec}</td></tr>')
-    return "\n".join(rows)
-
-
 _SOURCE_MAP_COMMENT = re.compile(rb"^[ \t]*//[#@] sourceMappingURL=.*$\n?", re.M)
 
 
@@ -279,7 +270,6 @@ def build_site(data, today=None):
         "plays_ci": f'{fmt_big(plays["totalPlaysCI95"][0])} – {fmt_big(plays["totalPlaysCI95"][1])}',
         "plays_avg": fmt_int(round(plays["avgPlaysPerDrawing"])),
         "sales_total": "$" + fmt_big(plays["estimatedSalesUSD"]),
-        "history_rows": _history_rows(drawings),
         "first_date": stats["firstDate"],
         "last_date": stats["lastDate"],
         "page_data": _json_for_html(_page_data(drawings, stats, data)),
@@ -324,8 +314,11 @@ def sanity_check(index_html, data):
                 problems.append("embedded latest drawing mismatch")
         except (ValueError, KeyError, IndexError) as e:
             problems.append(f"embedded data unreadable: {e}")
-    if index_html.count("<tr") < len(drawings):
-        problems.append("history table incomplete")
+    # The "Every drawing" rows are built in the browser from the embedded data
+    # (checked above); the page only needs the button and the empty tbody.
+    for needle in ('id="history-load"', 'id="history-body"'):
+        if needle not in index_html:
+            problems.append(f"history table hook missing: {needle}")
     for needle in ("Check Your Numbers", "Unofficial number checker", 'id="winners-chart"'):
         if needle not in index_html:
             problems.append(f"missing section: {needle}")

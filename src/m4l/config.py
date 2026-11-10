@@ -95,3 +95,8 @@ RESULTS_GRACE_MINUTES = int(os.environ.get("RESULTS_GRACE_MINUTES", "45"))
 # normal when counts post after the nightly run; >2 means 3 nights in a row
 # with no new data (blocked, site down, results not posting, ...).
 STALE_AFTER_DAYS = int(os.environ.get("STALE_AFTER_DAYS", "2"))
+# A newest-drawing page that's missing its results elements (not populated
+# yet) is held as "pending" without alarming until this hour ET on the
+# morning after the drawing. The scheduler runs hourly overnight, so the
+# first run at/after this hour is the one that alarms if it's still empty.
+PENDING_ALARM_HOUR_ET = int(os.environ.get("PENDING_ALARM_HOUR_ET", "6"))

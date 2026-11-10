@@ -7,7 +7,7 @@ Not affiliated with Powerball, MUSL, or any state lottery.
 ## How it works
 
 ```
-EventBridge Scheduler (12:15 a.m. America/New_York, nightly)
+EventBridge Scheduler (hourly 12:15-6:15 a.m. America/New_York)
   └─ Lambda m4l-tracker (Python 3.14, arm64)
        1. load state/historical-results.json from S3
        2. fetch missing dates + re-check the last 7 drawings from powerball.com
@@ -19,7 +19,7 @@ EventBridge Scheduler (12:15 a.m. America/New_York, nightly)
 S3 site/  ──(OAC, origin path /site)──  CloudFront  ──  m4l.elliscode.com
 ```
 
-A visitor loads `index.html` plus three same-origin JS files and one CSS file. All data (chart series, stats, and every drawing's winning numbers for the checker) is embedded in the HTML. The page's Content-Security-Policy sets `connect-src 'none'`, so the browser itself blocks any runtime request. No API Gateway, database, or external CDN is involved. Chart.js 4.4.7 (MIT) is vendored under `src/m4l/static/js/vendor/`.
+A visitor loads `index.html` plus three same-origin JS files and one CSS file. All data (chart series, stats, and every drawing's winning numbers for the checker) is embedded in the HTML. The "Every drawing" table isn't server-rendered: its rows are built in the browser from that same embedded data when the visitor presses "Load all drawings", which keeps the initial page light for flip phones. The page's Content-Security-Policy sets `connect-src 'none'`, so the browser itself blocks any runtime request. No API Gateway, database, or external CDN is involved. Chart.js 4.4.7 (MIT) is vendored under `src/m4l/static/js/vendor/`.
 
 ## Repo layout
 
@@ -70,7 +70,7 @@ Locally, `./data` plays the role of `s3://BUCKET/state/` and `./public` plays `s
 - Powerball's general results listing lacks per-tier winner counts. The per-date pages have them: winning numbers, a nine-row prize table with total winners and prize per combination, and a separate "Winners" card listing the states of lifetime-prize winners.
 - **Quirk handled:** a date with no published results does *not* 404. Powerball silently serves the nearest drawing instead. The parser compares the page's displayed date to the requested date and records a `not_published`/`no_drawing` failure on any mismatch.
 - Each record is validated: 5 unique white balls within 1–58, a Millionaire Ball within 1–5, exactly the nine expected tier codes (read from Powerball's own `m5-mb`…`m1-mb` CSS classes), integer counts, and agreement between the prize table and the Winners card.
-- Failure kinds: `missing_page`, `http_error`, `not_published`, `no_drawing`, `results_incomplete`, `unexpected_structure`, `parse_error`. None are ever converted to zero. The last two fail the Lambda invocation so an alarm can catch HTML changes.
+- Failure kinds: `missing_page`, `http_error`, `not_published`, `no_drawing`, `results_incomplete`, `unexpected_structure`, `parse_error`. None are ever converted to zero. The last two fail the Lambda invocation so an alarm can catch HTML changes. One exception: when the newest expected drawing's page is missing its results elements (`#numbers`, `#winners`, `table.winners-table`), the page usually just isn't populated yet. It goes into `state/pending.json` and logs at WARNING without alarming until `PENDING_ALARM_HOUR_ET` (default 6 a.m. ET) the morning after the drawing. The scheduler runs hourly overnight, so the 6:15 a.m. run alarms as normal if the page is still empty. The entry clears once the date parses.
 - **Staleness check:** every run also fails if the newest verified drawing is more than `STALE_AFTER_DAYS` (default 2) behind the newest drawing that should exist. That's the catch-all for being blocked, Powerball being down, or results never posting, which otherwise only show up as logged failures. State is saved and verified data published before the run fails.
 - robots.txt (checked 2026-11-05) permits all crawling. The terms of use contain no automated-access clause, but do contain a general intellectual-property clause. This project republishes only factual results (numbers and counts) with links back to each official page. It never republishes Powerball's HTML, text, logos, or styling. Raw HTML snapshots stay in the private `state/` prefix for debugging only.
 

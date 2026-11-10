@@ -1,6 +1,7 @@
 """AWS Lambda entry point: m4l.handler.lambda_handler
 
-Triggered once a day by EventBridge Scheduler with an empty event. Manual
+Triggered hourly overnight (12:15-6:15 a.m. ET) by EventBridge Scheduler
+with an empty event. Manual
 invocations can pass options:
 
     {}                                  normal incremental run
@@ -20,6 +21,13 @@ The invocation FAILS (raises), after saving state and publishing whatever
 verified data it has, so the Lambda Errors metric/alarm fires, when:
   - any page hit an unexpected-structure or parse error (Powerball HTML
     changed), or
+    Exception: if the newest expected drawing's page is missing its results
+    elements (#numbers/#winners/winners table), it usually just isn't
+    populated yet. It's recorded in state/pending.json and logged at
+    WARNING without alarming until PENDING_ALARM_HOUR_ET (default 6 a.m.
+    ET) the morning after the drawing; the scheduler runs hourly overnight,
+    and the first run at/after that hour alarms as normal if it's still
+    failing. The entry clears once the date parses.
   - the newest verified drawing is more than STALE_AFTER_DAYS (default 2)
     behind the newest drawing that should exist: the catch-all for being
     blocked, Powerball being down, or results never posting.
@@ -62,6 +70,10 @@ def lambda_handler(event, context):
     if out["alarms"]:
         problems.append(f"parse/structure failures (see state/scrape-failures.json and "
                         f"state/snapshots/): {out['alarms']}")
+        escalated = (out.get("pending") or {}).get("escalated") or []
+        if escalated:
+            problems.append(f"results page still not populated by the morning deadline "
+                            f"(see state/pending.json): {escalated}")
     fresh = out.get("freshness") or {}
     if fresh.get("stale"):
         problems.append(f"no new verified drawing for {fresh['lagDays']} day(s): newest is "

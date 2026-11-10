@@ -20,7 +20,7 @@ ALL = ["2026-02-22", "2026-02-23", "2026-02-24", "2026-02-25", "2026-02-26",
 
 
 class FakeFetcher:
-    """date -> record | failure-kind string. Records which dates were fetched."""
+    """date -> record | failure-kind string | (kind, detail). Records which dates were fetched."""
     def __init__(self, answers):
         self.answers = answers
         self.fetched = []
@@ -30,7 +30,9 @@ class FakeFetcher:
         a = self.answers.get(d, "not_published")
         url = f"https://example/{d}"
         if isinstance(a, str):
-            return FetchResult(d, url, failure_kind=a, detail="fake", html="<html/>")
+            a = (a, "fake")
+        if isinstance(a, tuple):
+            return FetchResult(d, url, failure_kind=a[0], detail=a[1], html="<html/>")
         return FetchResult(d, url, record=a, html="<html/>")
 
 
@@ -158,6 +160,9 @@ def test_generated_page_embeds_everything(stores):
     assert "connect-src 'none'" in html
     assert "Unofficial number checker. This tool compares numbers entered by the user" in html
     assert "fetch(" not in html and "XMLHttpRequest" not in html
+    # "Every drawing" rows are built client-side on request, not shipped in the HTML
+    assert 'id="history-load"' in html and 'id="history-body"></tbody>' in html
+    assert 'class="nums"' not in html
     for key in ("data/historical-results.json", "favicon.svg", "robots.txt"):
         assert site.exists(key)
     # published JS must not point DevTools at .map files (blocked by connect-src 'none')
@@ -216,3 +221,85 @@ def test_stale_threshold_is_configurable(stores, monkeypatch):
     state, site = stores
     out = run(state, site, RunOptions(), fetcher=FakeFetcher(failing_last(1)), now=NOW)
     assert out["freshness"]["stale"] is True
+
+
+# ---- pending: latest drawing's results page not populated yet --------------
+# Drawing 2026-03-01; its alarm deadline is 2026-03-02 06:00 ET.
+
+NOT_POPULATED = ("unexpected_structure", "missing #numbers, #winners, table.winners-table")
+LATEST = ALL[-1]
+OVERNIGHT = [datetime(2026, 3, 2, h, 15, tzinfo=ET) for h in range(0, 7)]  # 12:15..6:15 a.m.
+BEFORE_DEADLINE, AFTER_DEADLINE = OVERNIGHT[0], OVERNIGHT[-1]
+
+
+def pending_of(state):
+    return json.loads(state.read_text(ds.PENDING_KEY))["pending"]
+
+
+def test_first_miss_on_latest_date_is_pending_not_alarm(stores):
+    state, site = stores
+    out = run(state, site, RunOptions(), fetcher=FakeFetcher(records(**{LATEST: NOT_POPULATED})),
+              now=BEFORE_DEADLINE)
+    assert out["alarms"] == {}
+    assert out["pending"]["deferred"] == [LATEST] and out["pending"]["open"] == [LATEST]
+    assert pending_of(state)[LATEST]["attempts"] == 1
+    # still logged as a failure, with a snapshot
+    assert json.loads(state.read_text(ds.FAILURES_KEY))["failures"][LATEST]["kind"] == "unexpected_structure"
+    assert state.exists(f"snapshots/{LATEST}.unexpected_structure.html")
+
+
+def test_hourly_misses_stay_pending_until_6am_then_alarm(stores):
+    state, site = stores
+    answers = records(**{LATEST: NOT_POPULATED})
+    for now in OVERNIGHT[:-1]:                     # 12:15 .. 5:15 a.m.
+        out = run(state, site, RunOptions(), fetcher=FakeFetcher(answers), now=now)
+        assert out["alarms"] == {} and out["pending"]["deferred"] == [LATEST], now
+    out = run(state, site, RunOptions(), fetcher=FakeFetcher(answers), now=AFTER_DEADLINE)
+    assert out["alarms"] == {LATEST: "unexpected_structure"}
+    assert out["pending"]["escalated"] == [LATEST] and out["pending"]["deferred"] == []
+    entry = pending_of(state)[LATEST]
+    assert entry["attempts"] == len(OVERNIGHT) and "escalatedAt" in entry
+
+
+def test_first_seen_after_deadline_alarms_immediately(stores):
+    state, site = stores
+    out = run(state, site, RunOptions(), fetcher=FakeFetcher(records(**{LATEST: NOT_POPULATED})),
+              now=AFTER_DEADLINE)
+    assert out["alarms"] == {LATEST: "unexpected_structure"}
+
+
+def test_alarm_hour_is_configurable(stores, monkeypatch):
+    from m4l import config
+    monkeypatch.setattr(config, "PENDING_ALARM_HOUR_ET", 8)
+    state, site = stores
+    out = run(state, site, RunOptions(), fetcher=FakeFetcher(records(**{LATEST: NOT_POPULATED})),
+              now=AFTER_DEADLINE)
+    assert out["alarms"] == {} and out["pending"]["deferred"] == [LATEST]
+
+
+def test_miss_on_older_date_alarms_immediately(stores):
+    state, site = stores
+    out = run(state, site, RunOptions(), fetcher=FakeFetcher(records(**{ALL[-2]: NOT_POPULATED})),
+              now=BEFORE_DEADLINE)
+    assert out["alarms"] == {ALL[-2]: "unexpected_structure"}
+    assert out["pending"]["deferred"] == [] and pending_of(state) == {}
+
+
+def test_other_structure_failure_on_latest_date_alarms_immediately(stores):
+    state, site = stores
+    bad = ("unexpected_structure", "unknown prize tier 'm6'")
+    out = run(state, site, RunOptions(), fetcher=FakeFetcher(records(**{LATEST: bad})),
+              now=BEFORE_DEADLINE)
+    assert out["alarms"] == {LATEST: "unexpected_structure"}
+    assert pending_of(state) == {}
+
+
+def test_success_clears_pending(stores):
+    state, site = stores
+    run(state, site, RunOptions(), fetcher=FakeFetcher(records(**{LATEST: NOT_POPULATED})),
+        now=BEFORE_DEADLINE)
+    out = run(state, site, RunOptions(), fetcher=FakeFetcher(records()), now=OVERNIGHT[2])
+    assert out["alarms"] == {}
+    assert out["pending"]["cleared"] == [LATEST] and out["pending"]["open"] == []
+    assert pending_of(state) == {}
+    assert LATEST in [d["date"] for d in dataset_of(state)["drawings"]]

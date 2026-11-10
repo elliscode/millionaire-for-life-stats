@@ -115,6 +115,7 @@
     <section aria-labelledby="h-check" class="panel checker" id="check">
       <h2 id="h-check">Check Your Numbers</h2>
       <p class="panel__sub">Compare your numbers against any drawing since launch. Everything runs in your browser, and nothing you enter is sent anywhere.</p>
+      <p id="ck-stale" class="notice" role="note" hidden></p>
       <form id="checker-form" novalidate>
         <div class="field">
           <label for="ck-date">Drawing date</label>
@@ -123,16 +124,16 @@
         <fieldset class="field">
           <legend>Your five white ball numbers <span class="muted">(1–58, all different)</span></legend>
           <div class="balls">
-            <input class="ball" type="number" inputmode="numeric" min="1" max="58" aria-label="White ball 1" name="w1" required>
-            <input class="ball" type="number" inputmode="numeric" min="1" max="58" aria-label="White ball 2" name="w2" required>
-            <input class="ball" type="number" inputmode="numeric" min="1" max="58" aria-label="White ball 3" name="w3" required>
-            <input class="ball" type="number" inputmode="numeric" min="1" max="58" aria-label="White ball 4" name="w4" required>
-            <input class="ball" type="number" inputmode="numeric" min="1" max="58" aria-label="White ball 5" name="w5" required>
+            <input class="ball" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="White ball 1" name="w1" required>
+            <input class="ball" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="White ball 2" name="w2" required>
+            <input class="ball" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="White ball 3" name="w3" required>
+            <input class="ball" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="White ball 4" name="w4" required>
+            <input class="ball" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="White ball 5" name="w5" required>
           </div>
         </fieldset>
         <div class="field">
           <label for="ck-mb">Millionaire Ball <span class="muted">(1–5)</span></label>
-          <input class="ball ball--mb" type="number" inputmode="numeric" min="1" max="5" id="ck-mb" name="mb" required>
+          <input class="ball ball--mb" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="off" id="ck-mb" name="mb" required>
         </div>
         <button type="submit" class="btn">Check numbers</button>
       </form>
@@ -143,12 +144,11 @@
     <section aria-labelledby="h-table">
       <h2 id="h-table">Every drawing</h2>
       <p class="section-sub">Newest first. Each date links to its official Powerball result page. Rows with a lifetime-prize winner are highlighted.</p>
-      <div class="table-scroll table-scroll--tall">
+      <button type="button" class="btn" id="history-load">Load all drawings (${drawings_count})</button>
+      <div class="table-scroll table-scroll--tall" id="history-wrap" hidden>
         <table class="data history">
           <thead><tr><th scope="col">Date</th><th scope="col">Winning numbers</th><th scope="col">Top prize winners</th><th scope="col">Second prize winners</th></tr></thead>
-          <tbody>
-${history_rows}
-          </tbody>
+          <tbody id="history-body"></tbody>
         </table>
       </div>
       <p class="muted small">Raw data: <a href="data/historical-results.json">historical-results.json</a></p>

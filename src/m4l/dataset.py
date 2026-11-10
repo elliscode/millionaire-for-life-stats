@@ -18,12 +18,20 @@ log = logging.getLogger(__name__)
 DATASET_KEY = "historical-results.json"
 FAILURES_KEY = "scrape-failures.json"
 CORRECTIONS_KEY = "corrections.json"
+PENDING_KEY = "pending.json"
 SCHEMA_VERSION = 1
 
 # Failure kinds that mean "something is wrong with our parsing or their
 # site" and should fail the Lambda invocation (so it shows up in the Errors
 # metric). Everything else is expected/transient.
 ALARM_KINDS = {"unexpected_structure", "parse_error"}
+
+# The parser's "results elements absent" detail. On the newest expected
+# drawing this usually means Powerball hasn't populated the page yet, not
+# that the HTML changed, so it's held as "pending" and only alarms if it's
+# still failing at config.PENDING_ALARM_HOUR_ET the next morning.
+_PENDABLE_KIND = "unexpected_structure"
+_PENDABLE_DETAIL_PREFIX = "missing "
 
 # Fields that don't count as a change when comparing a refetched record.
 _VOLATILE = {"scrapedAt", "sourceUrl"}
@@ -51,6 +59,8 @@ class MergeSummary:
     def __init__(self):
         self.added, self.corrected, self.unchanged = [], [], []
         self.failures = {}  # date -> kind
+        self.deferred = set()  # failing dates held as pending this run (no alarm)
+        self.pending = None    # update_pending() result, set by the pipeline
 
     @property
     def changed(self):
@@ -58,7 +68,8 @@ class MergeSummary:
 
     @property
     def alarms(self):
-        return {d: k for d, k in self.failures.items() if k in ALARM_KINDS}
+        return {d: k for d, k in self.failures.items()
+                if k in ALARM_KINDS and d not in self.deferred}
 
     def as_dict(self):
         return {"added": self.added, "corrected": self.corrected,
@@ -100,6 +111,53 @@ def merge_results(dataset, failures, corrections, results, now_iso):
     if summary.changed:
         dataset["lastUpdated"] = now_iso
     return summary
+
+
+def is_pendable(result, latest_expected_iso):
+    """This failure may be deferred (until its deadline) instead of alarming."""
+    return (not result.ok and result.date == latest_expected_iso
+            and result.failure_kind == _PENDABLE_KIND
+            and (result.detail or "").startswith(_PENDABLE_DETAIL_PREFIX))
+
+
+def update_pending(pending, summary, results, latest_expected_iso, now_iso, alarm_due):
+    """Apply this run's results to the pending log (in place).
+
+    `alarm_due(date_iso) -> bool`: True once a pending date may alarm
+    (PENDING_ALARM_HOUR_ET on the morning after the drawing).
+
+    - pendable miss before its deadline: add/update the entry and defer its
+      alarm (summary.deferred)
+    - pendable miss at/after the deadline, or any other alarm-kind failure on
+      a pending date: escalate (alarm as normal; the entry stays until the
+      date parses)
+    - success: clear the entry
+    Non-alarm failures (http_error, ...) just update an existing entry.
+
+    Returns {"deferred": [...], "escalated": [...], "cleared": [...]}.
+    """
+    pmap = pending.setdefault("pending", {})
+    info = {"deferred": [], "escalated": [], "cleared": []}
+    for r in results:
+        if r.ok:
+            if pmap.pop(r.date, None) is not None:
+                info["cleared"].append(r.date)
+            continue
+        pendable = is_pendable(r, latest_expected_iso)
+        entry = pmap.get(r.date)
+        if entry is None and not pendable:
+            continue
+        if entry is None:
+            entry = pmap[r.date] = {"firstSeen": now_iso, "attempts": 0}
+        entry.update(kind=r.failure_kind, detail=r.detail, url=r.url, lastSeen=now_iso,
+                     attempts=entry.get("attempts", 0) + 1)
+        if pendable and not alarm_due(r.date):
+            summary.deferred.add(r.date)
+            info["deferred"].append(r.date)
+        elif r.failure_kind in ALARM_KINDS:
+            entry.setdefault("escalatedAt", now_iso)
+            info["escalated"].append(r.date)
+    return info
 
 
 def verified_drawings(dataset):

@@ -91,6 +91,34 @@ async function load(width, height, dark = false, mobile = false) {
 const failures = [];
 const check = (cond, msg) => { if (!cond) failures.push(msg); console.log((cond ? "PASS " : "FAIL ") + msg); };
 
+// "Every drawing" rows are NOT in the HTML; "Load all drawings" builds them
+// from the embedded data. Verifies before/after state; returns nothing.
+const checkHistory = async (label) => {
+  const before = await evaluate(`(() => ({
+    rows: document.querySelectorAll('#history-body tr').length,
+    wrapHidden: document.getElementById('history-wrap').hidden,
+    hasButton: !!document.getElementById('history-load') }))()`);
+  check(before.rows === 0 && before.wrapHidden && before.hasButton,
+    `${label}: history table empty and hidden until requested (${JSON.stringify(before)})`);
+  await evaluate("document.getElementById('history-load').click()");
+  await sleep(200);
+  const after = await evaluate(`(() => {
+    const data = JSON.parse(document.getElementById('m4l-data').textContent);
+    const rows = [...document.querySelectorAll('#history-body tr')];
+    const wins = data.series.topDaily.reduce((n, t, i) => n + ((t || data.series.secondDaily[i]) ? 1 : 0), 0);
+    return { rows: rows.length, expected: data.drawings.length,
+      firstDate: rows[0] && rows[0].querySelector('time').getAttribute('datetime'), lastDate: data.lastDate,
+      firstText: rows[0] && rows[0].textContent,
+      winRows: rows.filter(r => r.classList.contains('is-win')).length, wins,
+      buttonGone: !document.getElementById('history-load'),
+      wrapShown: !document.getElementById('history-wrap').hidden,
+      focusInFirstRow: !!rows[0] && rows[0].contains(document.activeElement),
+      fits: document.documentElement.scrollWidth <= innerWidth }; })()`);
+  check(after.rows === after.expected && after.firstDate === after.lastDate && after.winRows === after.wins &&
+        after.buttonGone && after.wrapShown && after.focusInFirstRow && after.fits,
+    `${label}: Load all drawings builds every row, newest first, focus on first row (${JSON.stringify(after)})`);
+};
+
 try {
   await load(1280, 900);
   check(await evaluate("typeof Chart === 'function'"), "Chart.js loaded from local asset");
@@ -150,8 +178,34 @@ try {
   check((await evaluate("document.getElementById('checker-result').textContent")).includes("TOP PRIZE"),
     "Enter on Millionaire Ball submits the check");
 
+  // tel inputs (KaiOS number inputs swallow Backspace); a real Backspace edits the value
+  check(await evaluate("[...document.querySelectorAll('#checker-form .ball')].every(b => b.type === 'tel')"),
+    "checker ball inputs are type=tel");
+  await evaluate("(() => { const b = document.getElementById('ck-mb'); b.focus(); b.setSelectionRange(1, 1); })()");
+  for (const type of ["keyDown", "keyUp"])
+    await S("Input.dispatchKeyEvent", { type, key: "Backspace", code: "Backspace",
+      windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
+  check(await evaluate("document.getElementById('ck-mb').value === ''"), "Backspace deletes a typed digit");
+
+  // Stale-data warning: shown exactly when the newest drawing on the page is
+  // older than yesterday (ET); results count as due at 12:00 a.m. ET.
+  const yesterdayET = (() => {
+    const t = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
+    const d = new Date(t + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+  })();
+  const staleInfo = await evaluate(`(() => { const n = document.getElementById('ck-stale');
+    return { hidden: n.hidden, text: n.textContent,
+             last: JSON.parse(document.getElementById('m4l-data').textContent).lastDate }; })()`);
+  check(staleInfo.hidden === !(staleInfo.last < yesterdayET),
+    `stale warning ${staleInfo.hidden ? "hidden" : "shown"} (newest ${staleInfo.last}, expected ${yesterdayET}): ${staleInfo.text}`);
+
   await evaluate("document.getElementById('check').scrollIntoView()");
   await shot("desktop-light-checker.png");
+
+  await checkHistory("desktop");
+  await evaluate("document.getElementById('history-wrap').scrollIntoView()");
+  await shot("desktop-history.png");
 
   await load(1280, 900, true);
   await shot("desktop-dark.png");
@@ -234,6 +288,10 @@ try {
   check(await evaluate("document.documentElement.scrollHeight") === await evaluate("Math.round(scrollY) + innerHeight"),
     "240px: hidden button doesn't extend the page");
   await viewShot("flip-5-bottom.png");
+
+  await evaluate("document.getElementById('history-load').scrollIntoView()"); await sleep(200);
+  await checkHistory("240px");
+  await viewShot("flip-6-history.png");
 
   // Desktop must not show the flip-phone button
   await load(1280, 900);
